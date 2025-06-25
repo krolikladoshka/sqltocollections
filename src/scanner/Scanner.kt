@@ -192,7 +192,7 @@ class Scanner(
         }
 
         val number = try {
-            numberStr.toFloat()
+            numberStr.toDouble()
         } catch (e: NumberFormatException) {
             throw e
         }

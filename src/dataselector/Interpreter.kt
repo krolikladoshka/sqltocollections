@@ -63,7 +63,6 @@ class Interpreter {
 
         val result = block()
 
-        this.currentScope.pop()
         this.currentScope = prevScope
 
         return result
@@ -346,7 +345,6 @@ class Interpreter {
             }
         } else {
             fun(left: Row, right: Row): Boolean {
-                println("Tables: ${table.name} join ${rightTable.name}; ${left}; ${right}")
                 this.currentRow = left.join(right, table.name, rightTable.name)
                 // TODO: Design issue, row should be passed to evaluate expression, evaluateExpressionOnRow?
                 // don't want to add visitors
@@ -385,7 +383,6 @@ class Interpreter {
                 table
             }
             is Ast.Expression.Select -> {
-                println("From is select expression")
                 val table = this.stackScope {
                     val selectSequence = this@Interpreter.executeSelectExpression(from.table, this.currentScope)
 
@@ -578,7 +575,6 @@ class Interpreter {
 
             return eval
         } catch (e: Exception) {
-            println("execution context ${this.currentScope.getLocalTables().toList()}")
             throw ExecutionException(
                 "Failed to evaluate ${expression}; ${e}"
             )

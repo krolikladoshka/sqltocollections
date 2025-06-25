@@ -71,12 +71,6 @@ class Parser(
     }
 
     private fun isAtEnd(): Boolean {
-//        require(
-//            (this.tokens[this.current].tokenType == TokenType.EOF && this.current <= (this.tokens.size - 1)) ||
-//            this.current < this.tokens.size
-//        ) {
-//            "Unexpected EOF in the middle of the stream"
-//        }
         return this.tokens[this.current].tokenType == TokenType.EOF || this.current >= this.tokens.size
     }
 
@@ -134,10 +128,7 @@ class Parser(
                 "Expected '*' in star selection"
             }
         } else {
-            results = this.parseExpressionList(
-                true, false,
-                setOf(TokenType.From, TokenType.Semicolon)
-            )
+            results = this.parseSubstatementExpressionList(true)
         }
 
         if (!starSelect && results.isEmpty()) {
@@ -168,14 +159,7 @@ class Parser(
             this.requireToken(TokenType.By) {
                 "Expected 'by' keyword after 'group'"
             }
-            this.parseExpressionList(
-                false, false,
-                setOf(
-                    TokenType.Having, TokenType.Limit,
-                    TokenType.Offset, TokenType.Order,
-                    TokenType.Semicolon
-                )
-            )
+            this.parseSubstatementExpressionList(false)
         } else {
             listOf()
         }
@@ -506,7 +490,6 @@ class Parser(
             "Expected identifier"
         }
 
-        // todo: has to be a separate function
         if (this.check(TokenType.Dot)) {
             this.advance()
             val columnName = this.requireToken(TokenType.Identifier) {
@@ -517,7 +500,6 @@ class Parser(
                 columnName,
                 identifier
             )
-
         }
 
         return Ast.Expression.Identifier(identifier)
@@ -677,8 +659,7 @@ class Parser(
     }
 
     private fun parseExpressionList(
-        aliased: Boolean = false, requireParents: Boolean = true,
-        stopTokens: Set<TokenType> = setOf(TokenType.RightParenthesis)
+        requireParents: Boolean = true,
     ): List<Ast.Expression> {
         if (requireParents) {
             this.requireToken(TokenType.LeftParenthesis) {
@@ -688,27 +669,15 @@ class Parser(
 
         val expressions = mutableListOf<Ast.Expression>()
 
-        while (!this.check(stopTokens)) {
+        while (!this.check(TokenType.RightParenthesis)) {
             val expression = this.parseExpression()
-
-            var alias: Token? = null
-            if (aliased) {
-                alias = this.parseOptionalAlias()?.name
-            }
-            expression.alias = alias
             expressions.add(expression)
 
             // what the
-            if (!this.check(stopTokens)) {
+            if (!this.check(TokenType.RightParenthesis)) {
                 if (this.isAtEnd()) {
                     break
                 }
-//                if (this.peek().tokenType == TokenType.Semicolon) {
-//                    this.requireToken(TokenType.Semicolon) {
-//                        "Expected ';' at end of select statement"
-//                    }
-//                    break;
-//                }
                 this.requireToken(TokenType.Comma) {
                     "Comma required after expression in expression list"
                 }
@@ -725,6 +694,30 @@ class Parser(
         if (requireParents) {
             this.requireToken(TokenType.RightParenthesis) {
                 "Required ')' at the end of expression list"
+            }
+        }
+
+        return expressions
+    }
+
+    private fun parseSubstatementExpressionList(aliased: Boolean = true): List<Ast.Expression> {
+        val expressions = mutableListOf<Ast.Expression>()
+
+        while (true) {
+            val expression = this.parseExpression()
+
+            if (aliased) {
+                val alias = this.parseOptionalAlias()
+                expression.alias = alias?.name
+            }
+
+            expressions.add(expression)
+            if (!this.check(TokenType.Comma)) {
+                break
+            }
+
+            this.requireToken(TokenType.Comma) {
+                "Expected comma after expression in expression list"
             }
         }
 

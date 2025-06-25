@@ -13,8 +13,6 @@ sealed class Ast {
     ) {
         interface Selectable
 
-//        sealed class Aliased(open var alias: Token? = null) : Expression()
-
         data class Identifier(
             val name: Token,
             val table: Token? = null
@@ -88,13 +86,13 @@ sealed class Ast {
         data class TableReference(
             val token: Token,
             val table: Selectable,
-//            override var alias: Token? = null
         ) : Expression()
 
         data class Literal(
             val token: Token,
             val value: Any?,
-//            override var alias: Token? = null
+
+
         ) : Expression()
 
         data class Case(

@@ -125,13 +125,6 @@ class Scope(
         return scope
     }
 
-    fun pop(): Scope {
-//        this.parentScope?.children?.remove(this)
-//        this.parentScope = null
-
-        return this
-    }
-
     fun updateLocalBindings(bindings: Map<String, Table>) {
         this.executionContext.updateBindings(bindings)
     }
