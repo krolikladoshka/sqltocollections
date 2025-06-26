@@ -3,6 +3,9 @@ package parser
 import scanner.Token
 import scanner.TokenType
 import syntax.Ast
+import syntax.OrderBy
+import syntax.SortDirection
+import syntax.sortDirectionFromTokenType
 
 
 open class ParseException(message: String) : RuntimeException(message)
@@ -172,6 +175,16 @@ class Parser(
             }
         }
 
+        val orderBy = if (this.check(TokenType.Order)) {
+            this.advance()
+            this.requireToken(TokenType.By) {
+                "Expected 'by' keyword after 'order'"
+            }
+            this.parseOrderByList()
+        } else {
+            listOf()
+        }
+
         var limit: Ast.Expression? = null
         var offset: Ast.Expression? = null
 
@@ -194,12 +207,39 @@ class Parser(
             where,
             groupBy,
             having,
+            orderBy,
             limit,
             offset
         )
     }
 
+    private fun parseOrderByList(): List<OrderBy> {
+        val sortColumns = mutableListOf<OrderBy>()
 
+        while (true) {
+            val identifier = this.parseIdentifier()
+            val sortDirection = if (this.check(setOf(TokenType.Asc, TokenType.Desc))) {
+                val direction = this.advance()
+                sortDirectionFromTokenType(direction.tokenType)
+            } else {
+                SortDirection.Ascending
+            }
+
+            sortColumns.add(OrderBy(
+                identifier,
+                sortDirection
+            ))
+
+            if (!this.check(TokenType.Comma)) {
+                break
+            }
+            this.requireToken(TokenType.Comma) {
+                "Comma is expected in order by sorting list"
+            }
+        }
+
+        return sortColumns
+    }
 
     private fun parseFromClause():
         Pair<Ast.Expression.TableReference, List<Ast.Expression.JoinClause>>
@@ -254,6 +294,10 @@ class Parser(
 
     private fun parseTableReference(): Ast.Expression.TableReference {
         var table = this.parseExpression()
+
+        if (table is Ast.Expression.Grouping) {
+            table = table.expression
+        }
 
         if ((table !is Ast.Expression.Selectable) && (table !is Ast.Expression.Identifier)) {
             throw ParseException(
@@ -727,132 +771,3 @@ class Parser(
         return this.parseOrExpression()
     }
 }
-
-enum class ParseScope {
-    TopLevelSelect,
-    SubquerySelect,
-    From,
-}
-
-
-//class Semantics {
-//    val ast: Ast.Statement.Select
-//    private var selectsCounter: Int = 0
-//    private var currentParseScope: ParseScope = ParseScope.TopLevelSelect
-//    private val rootScope: Scope
-//    private var currentScope: Scope
-//
-//    constructor(ast: Ast.Statement.Select, bindings: Map<String, Table>) {
-//        this.ast = ast
-//
-//        this.selectsCounter = 0
-//        this.currentParseScope = ParseScope.TopLevelSelect
-//
-//        this.rootScope = Scope(ExecutionContext(bindings))
-//        this.currentScope = this.rootScope
-//    }
-//
-//    fun generateSubqueryAlias(): String {
-//        while (true) {
-//            val alias = "t${this.selectsCounter}"
-//            this.selectsCounter++
-//
-//            if (this.currentScope.getTableAlias(alias) != null) {
-//                return alias
-//            }
-//        }
-//    }
-//
-//    fun evaluateSemantics() {
-//        val query = this.ast.query
-//
-//        this.evaluateSelect(query, subquery = false)
-//    }
-//
-//    fun setParseScope(scope: ParseScope, block: () -> Unit) {
-//        val savedParseScope = scope
-//        this.currentParseScope = scope
-//        block()
-//        this.currentParseScope = savedParseScope
-//    }
-//
-//    fun evaluateSelect(query: Ast.Expression.Select, subquery: Boolean = false) {
-//        val alias = if (subquery && query.alias?.lexeme == null) {
-//            this.generateSubqueryAlias()
-//        } else {
-//            query.alias!!.lexeme
-//        }
-//        this.setParseScope(ParseScope.From) {
-//            if (query.from != null) {
-//                this.evaluateTableReference(query.from)
-//            }
-//
-//            for (join in query.joins) {
-//                this.evaluateTableReference(join.tableReference)
-//
-//                if (join.condition != null) {
-//                    this.evaluateExpression(join.condition)
-//                }
-//            }
-//        }
-//
-//        query.where?.let {
-//            this@Semantics.evaluateExpression(query.where)
-//        }
-//
-//        query.limit?.let {
-//            this@Semantics.
-//        }
-////        if (query.starSelect) {
-////            query.results = ;
-////        }
-//    }
-//
-//    fun stackScope(block: () -> Unit) {
-//        val prevScope = this.currentScope
-//        this.currentScope = this.currentScope.stack()
-//
-//        block()
-//
-//        this.currentScope.pop()
-//        this.currentScope = prevScope
-//    }
-//
-////    fun popScope() {
-////        require(this.currentScope.parentScope != null) {
-////            "Can't go out of outermost scope"
-////        }
-////
-////        this.currentScope = this.currentScope.parentScope!!
-////    }
-//
-//    fun evaluateTableReference(tableReference: Ast.Expression.TableReference) {
-//        when (tableReference.table) {
-//            is Ast.Expression.Select -> {
-//                this.stackScope {
-//                    this.setParseScope(ParseScope.SubquerySelect) {
-//                        this@Semantics.evaluateSelect(tableReference.table, true)
-//                    }
-//                }
-//            }
-//            is Ast.Expression.TableIdentifier -> this.evaluateTableIdentifier(tableReference.table)
-//            else ->
-//                throw ParseException("table reference can only be select or table name")
-//        }
-//    }
-//
-//    fun evaluateTableIdentifier(tableIdentifier: Ast.Expression.TableIdentifier) {
-//        if (this.currentScope.getByIdentifier(tableIdentifier) == null) {
-//            throw ParseException(
-//                "Unresolved table binding ${tableIdentifier.name}"
-//            )
-//        }
-//
-//        if (tableIdentifier.alias?.lexeme == null) {
-//            val generatedAlias = this.generateSubqueryAlias()
-//            tableIdentifier.alias = tableIdentifier.name.copy(lexeme = generatedAlias)
-//        }
-//
-//        this.currentScope.setTableAlias(tableIdentifier.alias!!.lexeme, tableIdentifier.name.lexeme)
-//    }
-//}

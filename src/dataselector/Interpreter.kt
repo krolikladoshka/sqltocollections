@@ -3,6 +3,7 @@ package dataselector
 import dataselector.interpreter.*
 import scanner.TokenType
 import syntax.Ast
+import kotlin.collections.filter
 
 
 class Interpreter {
@@ -168,9 +169,21 @@ class Interpreter {
             }.toList()
         }
 
-        return this.evaluateAggregatedSelectProjection(
+        var groupByProjection = this.evaluateAggregatedSelectProjection(
             query, grouped, table
         )
+        this.currentScope.setTable(groupByProjection.name, groupByProjection)
+        query.having?.let {
+            groupByProjection = groupByProjection.mapRows {
+                filter {
+                    row ->
+                        this@Interpreter.currentRow = row
+                        this@Interpreter.evaluateExpression(it) as Boolean
+                }
+            }
+        }
+
+        return groupByProjection
     }
 
     private fun evaluateAggregatedSelectProjection(
@@ -276,8 +289,12 @@ class Interpreter {
 
         return Table(
             tableName,
-            result.first().columns.map {
-                c -> c.alias
+            if (result.isNotEmpty()) {
+                result.first().columns.map {
+                        c -> c.alias
+                }
+            } else {
+                listOf()
             },
             result,
             this.currentScope

@@ -1,32 +1,44 @@
 package syntax
 
-import dataselector.interpreter.Column
 import parser.ParseException
 import scanner.TokenType
-
-
-//sealed class NamedExpression {
-//
-//
-//    data class Expression(
-//        val expressionView()
-//        val name: String
-//    ) : NamedExpression()
-//
-//    data class SimpleName(
-//        val name: String
-//    ) : NamedExpression()
-//}
 
 
 data class Identifier(
     val table: String?,
     val name: String,
-)
+) {
+    override fun toString(): String {
+        return buildString {
+            this@Identifier.table?.let {
+                append("$it.")
+            }
+            append(this@Identifier.name)
+        }
+    }
+}
 
 sealed class Projection(
     val alias: String?
 ) {
+    override fun toString(): String {
+        return when (this) {
+            is ColumnIdentifier -> buildString {
+                append(this@Projection.identifier)
+                this@Projection.alias?.let {
+                    append(" as $it")
+                }
+            }
+            is Expression -> this@Projection.schematicPrint()
+            is Subquery -> buildString {
+                append("Subquery")
+                this@Projection.alias?.let {
+                    append(" as $it")
+                }
+            }
+        }
+    }
+
     class ColumnIdentifier(
         val identifier: Identifier,
         alias: String?
@@ -35,7 +47,16 @@ sealed class Projection(
     class Expression(
         val expression: Ast.Expression,
         alias: String?
-     ) : Projection(alias)
+    ) : Projection(alias) {
+        fun schematicPrint(): String {
+            return buildString {
+                append(this@Expression.expression.schematicPrint())
+                this@Expression.alias?.let {
+                    append(" as $it")
+                }
+            }
+        }
+    }
 
     class Subquery(
         val select: EcwidSelectView,
@@ -84,12 +105,81 @@ fun binaryLogicalFromTokenType(tokenType: TokenType): BinaryLogical {
 data class Conditions(
     val operands: List<Ast.Expression>,
     val operators: List<BinaryLogical>
+) {
+    override fun toString(): String {
+        return buildString {
+            this@Conditions.operands.forEachIndexed {
+                index, operand ->
+                    append(operand.schematicPrint())
+                    if (index < this@Conditions.operators.size) {
+                        append(" ")
+                        append(this@Conditions.operators[index].name.lowercase())
+                        append(" ")
+                    }
+            }
+        }
+    }
+}
+
+sealed class Source(
+    val alias: String?
+) {
+    override fun toString(): String {
+        return this.prettyPrint(0, 1)
+    }
+
+    fun prettyPrint(currentDepth: Int, maxDepth: Int): String {
+        return when (this) {
+            is Table -> buildString {
+                append(this@Source.name)
+                this@Source.alias?.let {
+                    append(" as $it")
+                }
+            }
+            is SubqueryTable -> buildString {
+                append("(")
+                if (currentDepth >= maxDepth) {
+                    append("Subquery")
+                } else {
+                    append("\n")
+//                    append("  ".repeat(currentDepth))
+                    append(this@Source.select.prettyPrint(currentDepth, maxDepth))
+                    append("\n")
+                    if (currentDepth > 0) {
+                        append("  ".repeat(currentDepth - 1))
+                    }
+                }
+                append(")")
+                this@Source.alias?.let {
+                    append(" as $it")
+                }
+            }
+        }
+    }
+
+    class Table(
+        val name: String,
+        alias: String?
+    ) : Source(alias)
+
+    class SubqueryTable(
+        val select: EcwidSelectView,
+        alias: String?
+    ) : Source(alias)
+}
+
+
+data class Join(
+    val joinType: JoinType,
+    val source: Source,
+    val on: Conditions?
 )
 
-data class Source {}
-data class Join {}
-data class Where {}
-data class Sort {}
+data class Sort(
+    val identifier: Identifier,
+    val direction: SortDirection = SortDirection.Ascending
+)
+
 
 class EcwidSelectView(
     val projections: List<Projection>,
@@ -103,6 +193,99 @@ class EcwidSelectView(
     val offset: Int = 0,
     val isStarSelect: Boolean = false
 ) {
+    override fun toString(): String {
+        return this.prettyPrint(currentDepth = 0, maxDepth = 1)
+    }
+
+    fun prettyPrint(currentDepth: Int = 0, maxDepth: Int = 0): String {
+        fun walk(sb: StringBuilder, currentDepth: Int) {
+            if (currentDepth >= maxDepth) {
+                return
+            }
+            val tab = "  ".repeat(currentDepth)
+            val selectTab = "  ".repeat(currentDepth + 1)
+            sb.append("${tab}select\n$selectTab")
+
+            val projections = this.projections.joinToString("\n$selectTab") { projection ->
+                projection.toString()
+            }
+            sb.append(projections)
+
+            if (fromSource == null) {
+                return
+            }
+            sb.append("\n")
+            sb.append(tab)
+            sb.append("from ")
+            sb.append(fromSource.prettyPrint(currentDepth + 1, maxDepth))
+            sb.append("\n")
+
+            val joins = this.joins.joinToString("\n") { join ->
+                buildString {
+                    append(tab)
+                    append(join.joinType.name)
+                    append(" join ")
+                    append(join.source.prettyPrint(currentDepth + 1, currentDepth))
+                    append(tab)
+                    if (join.on != null) {
+                        append("\n")
+                        append(tab)
+                        append("  ")
+                        append("on ")
+                        append(join.on)
+                    }
+                }
+            }
+            sb.append(joins)
+
+            if (this.joins.isNotEmpty()) {
+                sb.append("\n")
+            }
+            sb.append(tab)
+            sb.append("where ")
+            sb.append(this.whereClauses)
+            sb.append("\n")
+
+            if (this.groupByColumns.isNotEmpty()) {
+                sb.append(tab)
+                sb.append("group by ")
+                val groupByColumns = this.groupByColumns.joinToString(", ") {
+                    groupBy ->
+                        groupBy.toString()
+                }
+                sb.append(groupByColumns)
+                sb.append("\n")
+                sb.append(tab)
+                sb.append("having ")
+                sb.append(this.havingClauses)
+            }
+
+            if (this.sortColumns.isNotEmpty()) {
+                sb.append("\n")
+                sb.append(tab)
+                sb.append("order by ")
+                val sort = this.sortColumns.joinToString(", ") {
+                    orderBy -> orderBy.toString()
+                }
+                sb.append(sort)
+            }
+
+            this.limit?.let {
+                sb.append("\n")
+                sb.append(tab)
+                sb.append("limit $it")
+            }
+            sb.append("\n")
+            sb.append(tab)
+            sb.append("offset ${this.offset}")
+        }
+
+        return buildString {
+            walk(this, currentDepth)
+//            this@EcwidSelectView.prettyPrint(0, depth)
+        }
+    }
+
     companion object Factory {
         fun fromAst(ast: Ast.Statement.Select): EcwidSelectView {
             val query = ast.query
@@ -125,16 +308,24 @@ class EcwidSelectView(
             }
 
             val groupByColumns = query.groupBy.map { groupBy ->
-                this@Factory.getGroupByColumn(groupBy)
+                this@Factory.getExpressionColumn(groupBy)
             }
             val having = if (query.having != null) {
                 this.splitCondition(query.having)
             } else {
                 Conditions(listOf(), listOf())
             }
-
-            var limit: Number?;
-            var offset: Number;
+            val sort = query.orderBy.map {
+                orderBy -> Sort(
+                    Identifier(
+                        orderBy.column.table?.lexeme,
+                        orderBy.column.name.lexeme
+                    ),
+                    orderBy.direction
+                )
+            }
+            var limit: Number?
+            var offset: Number
 
             try {
                 limit = query.limit?.let {
@@ -191,19 +382,26 @@ class EcwidSelectView(
         private fun getSource(source: Ast.Expression.TableReference): Source {
             return when (source.table) {
                 is Ast.Expression.TableIdentifier ->
-                    Source(source.table.name.lexeme)
+                    Source.Table(
+                        source.table.name.lexeme, source.alias?.lexeme
+                    )
                 is Ast.Expression.Select ->
-                    Source(source.alias?.lexeme, this.fromQuery(source.table))
+                    Source.SubqueryTable(
+                        this.fromQuery(source.table),
+                        source.alias?.lexeme,
+                    )
                 else ->
-                    throw ParseException("Unexpected source in from clause ${source.table}")
+                    throw ParseException(
+                        "Unexpected source in from clause ${source.table}"
+                    )
             }
         }
 
         private fun getJoin(join: Ast.Expression.JoinClause): Join {
             return Join(
                 joinTypeFromTokenType(join.joinType.tokenType),
-                join.condition?.let { this@Factory.splitCondition(it) },
                 this.getSource(join.tableReference),
+                join.condition?.let { this@Factory.splitCondition(it) },
             )
         }
 
@@ -217,7 +415,7 @@ class EcwidSelectView(
                         walk(expression.left)
                         val operator = expression.operator.tokenType
                         operators.add(binaryLogicalFromTokenType(operator))
-                        this.splitCondition(expression.right)
+                        walk(expression.right)
                     }
                     else ->
                         operands.add(expression)
@@ -232,13 +430,13 @@ class EcwidSelectView(
             )
         }
 
-        private fun getGroupByColumn(groupBy: Ast.Expression): Identifier {
-            return when (groupBy) {
+        private fun getExpressionColumn(expression: Ast.Expression): Identifier {
+            return when (expression) {
                 is Ast.Expression.Identifier ->
-                    Identifier(groupBy.table?.lexeme, groupBy.name.lexeme)
+                    Identifier(expression.table?.lexeme, expression.name.lexeme)
                 else ->
                     throw ParseException(
-                        "Only column expressions are supported in group by for now"
+                        "Only column expressions were expected"
                     )
             }
         }

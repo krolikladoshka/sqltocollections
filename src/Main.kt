@@ -6,6 +6,7 @@ import dataselector.interpreter.Table
 import parser.Parser
 import scanner.Scanner
 import scanner.TokenType
+import syntax.EcwidSelectView
 import java.io.File
 
 
@@ -72,15 +73,15 @@ fun main() {
     tokens.forEach {
         token -> println(token)
     }
-    // TODO: builtin function calls
-    // ignore comment tokens in parser
-    // multiple expected terminals for expression list parsing function
-    // interpreter on lists
+
     val parser = Parser(tokens)
 
     val parseResult = parser.parse()
-    println(parseResult)
-
+//    println(parseResult)
+    val ecwidView = EcwidSelectView.Factory.fromAst(
+        parseResult
+    )
+    println(ecwidView.prettyPrint(maxDepth = 10))
 //    val interpreter = Interpreter(ExecutionContext(mutableMapOf()))
 
     val collection = listOf(

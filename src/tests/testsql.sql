@@ -22,7 +22,8 @@ select
 --*
     out.field2,
     (out.f2_avg + out.f1_avg) / 2,
-    f2_sum between 1 and 10
+    out.f2_sum between 1 and 10,
+    out.f2_sum as f2_sum
 from
 (select
     fc.field2 as field2,
@@ -62,8 +63,11 @@ from (
 filter_collection as fc,
 filter_collection as fc2,
 test_collection as tc3
-cross join filter_collection as fc1
+inner join filter_collection as fc1
+    on fc1.field1 = p.field1 and true or true
+--where fc.field2 in (1, 2, 3) or true and (fc.field1 = 3)
 group by fc.field2
+having f2_sum < 10.0 or true
 ) as out
 --cross join filter_collection as fc1
 --group by fc.field2;
