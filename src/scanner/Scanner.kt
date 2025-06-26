@@ -24,9 +24,9 @@ fun Char.canStartIdentifier(): Boolean {
 open class ScannerException(message: String) : RuntimeException(message)
 
 class UnexpectedCharacterException(
-    val character: Char,
+    character: Char,
     message: String
-) : ScannerException(message)
+) : ScannerException("$character $message")
 
 
 class Scanner(
@@ -70,7 +70,7 @@ class Scanner(
     }
 
     private fun isAtEnd(): Boolean {
-        return this.current >= this.source.length;
+        return this.current >= this.source.length
     }
 
     private fun peek(offset: Int = 0): Char {
@@ -208,7 +208,7 @@ class Scanner(
             "Expected \"'\" at the start of the string"
         }
 
-        var stringEnd = -1;
+        var stringEnd: Int
         while (true) {
             val c = this.advance()
 
@@ -311,13 +311,13 @@ class Scanner(
             ']' -> return this.produceSimpleToken(TokenType.RightSquareBracket)
             ';' -> return this.produceSimpleToken(TokenType.Semicolon)
             else -> {
-                if (c.isAsciiDigit()) {
-                    return this.scanNumber()
+                return if (c.isAsciiDigit()) {
+                    this.scanNumber()
                 } else if (c.canStartIdentifier()) {
-                    return this.scanIdentifier()
+                    this.scanIdentifier()
                 } else {
                     throw ScannerException(
-                        "Unknown token ${c} at ${this.currentLine}:${this.currentColumn}"
+                        "Unknown token $c at ${this.currentLine}:${this.currentColumn}"
                     )
                 }
             }

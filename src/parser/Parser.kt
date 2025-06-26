@@ -1,6 +1,5 @@
 package parser
 
-import jdk.nashorn.internal.runtime.regexp.joni.Syntax
 import scanner.Token
 import scanner.TokenType
 import syntax.Ast
@@ -9,9 +8,9 @@ import syntax.Ast
 open class ParseException(message: String) : RuntimeException(message)
 
 class UnexpectedTokenException(
-    val token: Token,
+    token: Token,
     message: String
-) : ParseException(message)
+) : ParseException("$token $message")
 
 class Parser(
     private val tokens: List<Token>,
@@ -155,7 +154,7 @@ class Parser(
         }
 
         val groupBy = if (this.check(TokenType.Group)) {
-            val token = this.advance()
+            this.advance()
             this.requireToken(TokenType.By) {
                 "Expected 'by' keyword after 'group'"
             }
@@ -210,7 +209,7 @@ class Parser(
         }
         val joinTokens = setOf(
             TokenType.Left, TokenType.Inner,
-            TokenType.Cross,
+            TokenType.Cross, TokenType.Comma
         )
         val tableReference = this.parseTableReference()
         val joins = mutableListOf<Ast.Expression.JoinClause>()
@@ -219,13 +218,20 @@ class Parser(
             if (!this.check(joinTokens)) (
                 break
             )
-            val joinType = this.advance()
-            this.requireToken(TokenType.Join) {
-                "Expected 'join' keyword after ${joinType.tokenType.name}"
+            var joinType = this.advance()
+
+            if (joinType.tokenType == TokenType.Comma) {
+                // well . . .
+                joinType = joinType.copy(tokenType = TokenType.Cross)
+            } else {
+                this.requireToken(TokenType.Join) {
+                    "Expected 'join' keyword after ${joinType.tokenType.name}"
+                }
             }
+
             val joinTableReference = this.parseTableReference()
 
-            val joinCondition = if (this.check(TokenType.On)) {
+            val joinCondition = if (joinType.tokenType != TokenType.Cross && this.check(TokenType.On)) {
                 this.advance()
                 this.parseExpression()
             } else {
@@ -328,9 +334,10 @@ class Parser(
     private fun parseOrExpression(): Ast.Expression {
         return this.parseLeftAssociative(
             setOf(TokenType.Or),
-            Parser::parseAndExpression,
-            {lhs, op, rhs -> Ast.Expression.Logical(lhs, op, rhs)}
-        )
+            Parser::parseAndExpression
+        ) {
+            lhs, op, rhs -> Ast.Expression.Logical(lhs, op, rhs)
+        }
     }
 
     private fun parseAndExpression(): Ast.Expression {
@@ -338,9 +345,10 @@ class Parser(
             setOf(
                 TokenType.And
             ),
-            Parser::parseEqualityExpression,
-            {lhs, op, rhs -> Ast.Expression.Logical(lhs, op, rhs)}
-        )
+            Parser::parseEqualityExpression
+        ) {
+            lhs, op, rhs -> Ast.Expression.Logical(lhs, op, rhs)
+        }
     }
 
     private fun parseEqualityExpression(): Ast.Expression {
@@ -348,9 +356,10 @@ class Parser(
             setOf(
                 TokenType.Equals, TokenType.NotEquals,
             ),
-            Parser::parseComparisonExpression,
-            {lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)}
-        )
+            Parser::parseComparisonExpression
+        ) {
+            lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)
+        }
     }
 
     private fun parseComparisonExpression(): Ast.Expression {
@@ -359,9 +368,10 @@ class Parser(
                 TokenType.Less, TokenType.LessEquals,
                 TokenType.Greater, TokenType.GreaterEquals,
             ),
-            Parser::parseAdditiveExpression,
-            {lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)}
-        )
+            Parser::parseAdditiveExpression
+        ) {
+            lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)
+        }
     }
 
     private fun parseAdditiveExpression(): Ast.Expression {
@@ -369,9 +379,10 @@ class Parser(
             setOf(
                 TokenType.Plus, TokenType.Minus,
             ),
-            Parser::parseMultiplicativeExpression,
-            {lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)}
-        )
+            Parser::parseMultiplicativeExpression
+        ) {
+            lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)
+        }
     }
 
     private fun parseMultiplicativeExpression(): Ast.Expression {
@@ -379,9 +390,10 @@ class Parser(
             setOf(
                 TokenType.Star, TokenType.Slash,
             ),
-            Parser::parseUnaryExpression,
-            {lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)}
-        )
+            Parser::parseUnaryExpression
+        ) {
+            lhs, op, rhs -> Ast.Expression.Binary(lhs, op, rhs)
+        }
     }
 
     private fun parseUnaryExpression(): Ast.Expression {
@@ -430,18 +442,11 @@ class Parser(
         val inToken = this.requireToken(TokenType.In) {
             "Expected 'in' keyword"
         }
-        this.requireToken(TokenType.LeftParenthesis) {
-            "Expected '(' after 'in'"
-        }
 
-        val range = this.parseExpressionList(requireParents = false)
+        val range = this.parseExpressionList()
 
-        check(range is List<Ast.Expression> && range.isNotEmpty()) {
+        check(range.isNotEmpty()) {
             "'in' expression range can't be empty"
-        }
-
-        this.requireToken(TokenType.RightParenthesis) {
-            "Expected closing ')' in 'in' expression"
         }
 
         return Ast.Expression.In(
@@ -471,7 +476,7 @@ class Parser(
         }
 
         val first = this.parsePrimaryExpression()
-        val and = this.requireToken(TokenType.And) {
+        this.requireToken(TokenType.And) {
             "Expected 'and' keyword after first between argument"
         }
 
@@ -589,7 +594,7 @@ class Parser(
             else ->
                 throw ParseException(
                     "Expected expression at ${this.currentPosition}" +
-                    " but got ${token}"
+                    " but got $token"
                 )
         }
     }
@@ -646,7 +651,7 @@ class Parser(
             "Expected ')' at the end of the grouping"
         }
 
-        return expression
+        return Ast.Expression.Grouping(expression)
     }
 
     private fun parseLiteral(value: Any?): Ast.Expression.Literal {
@@ -658,13 +663,9 @@ class Parser(
         )
     }
 
-    private fun parseExpressionList(
-        requireParents: Boolean = true,
-    ): List<Ast.Expression> {
-        if (requireParents) {
-            this.requireToken(TokenType.LeftParenthesis) {
-                "Required '(' at the start of expression list"
-            }
+    private fun parseExpressionList(): List<Ast.Expression> {
+        this.requireToken(TokenType.LeftParenthesis) {
+            "Required '(' at the start of expression list"
         }
 
         val expressions = mutableListOf<Ast.Expression>()
@@ -691,10 +692,8 @@ class Parser(
             )
         }
 
-        if (requireParents) {
-            this.requireToken(TokenType.RightParenthesis) {
-                "Required ')' at the end of expression list"
-            }
+        this.requireToken(TokenType.RightParenthesis) {
+            "Required ')' at the end of expression list"
         }
 
         return expressions

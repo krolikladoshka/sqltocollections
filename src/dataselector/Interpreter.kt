@@ -1,20 +1,6 @@
 package dataselector
 
-import dataselector.interpreter.AvgCall
-import dataselector.interpreter.Column
-import dataselector.interpreter.CountCall
-import dataselector.interpreter.ExecutionContext
-import dataselector.interpreter.ExecutionException
-import dataselector.interpreter.GroupingKey
-import dataselector.interpreter.InnerGroupingKey
-import dataselector.interpreter.Row
-import dataselector.interpreter.Scope
-import dataselector.interpreter.SumCall
-import dataselector.interpreter.Table
-import dataselector.interpreter.crossJoin
-import dataselector.interpreter.innerJoin
-import dataselector.interpreter.leftJoin
-import parser.ParseScope
+import dataselector.interpreter.*
 import scanner.TokenType
 import syntax.Ast
 
@@ -31,7 +17,6 @@ class Interpreter {
     var currentRow: Row?
 
     private var selectsCounter: Int
-    private var currentParseScope: ParseScope
     private val rootScope: Scope
     private var currentScope: Scope
     private var prevScope: Scope?
@@ -39,7 +24,6 @@ class Interpreter {
     constructor(bindings: Map<String, Table>) {
         this.currentRow = null
         this.selectsCounter = 0
-        this.currentParseScope = ParseScope.TopLevelSelect
 
         this.rootScope = Scope(ExecutionContext(bindings))
         this.currentScope = this.rootScope
@@ -76,11 +60,11 @@ class Interpreter {
 
         this.rootScope.updateLocalBindings(bindings)
 
-        return this.executeSelectExpression(query.query, this.rootScope)
+        return this.executeSelectExpression(query.query)
     }
 
     private fun executeSelectExpression(
-        query: Ast.Expression.Select, scope: Scope, subquery: Boolean = false
+        query: Ast.Expression.Select, subquery: Boolean = false
     ): Table {
         if (query.starSelect) {
             throw ExecutionException("Star select isn't supported! ${query.token.at()}")
@@ -116,7 +100,7 @@ class Interpreter {
                 map {
                     row ->
                         this@Interpreter.currentRow = row
-                        this@Interpreter.evaluateSelectProjection(query, row, sequence)
+                        this@Interpreter.evaluateSelectProjection(query,sequence)
                 }
             }
         }
@@ -161,10 +145,6 @@ class Interpreter {
             "and probably forever. Use subqueries . . ."
         }
 
-        val groupBy = query.groupBy.map {
-            gb -> gb as Ast.Expression.Identifier
-        }
-
         val grouped = table.groupBy {
             row -> query.groupBy.map {
                 groupBy ->
@@ -207,7 +187,7 @@ class Interpreter {
         val result = mutableListOf<Row>()
 
         for ((groupKey, group) in groups.entries) {
-            var columns = groupKey.mapIndexed {
+            val columns = groupKey.mapIndexed {
                 index, key -> Column(
                     if (key.identifier.table == null) {
                         ""
@@ -218,7 +198,7 @@ class Interpreter {
                     key.identifier.name.lexeme,
                     index
                 )
-            }
+            }.toMutableList()
 
             val keyValues = columns.map {
                 column ->
@@ -337,7 +317,7 @@ class Interpreter {
             "on condition is required for join"
         }
 
-        val rightTable = this.evaluateFrom(joinClause.tableReference, true);
+        val rightTable = this.evaluateFrom(joinClause.tableReference, true)
 
         val onCondition = if (joinClause.joinType.tokenType == TokenType.Cross) {
             fun (_: Row, _: Row): Boolean {
@@ -384,7 +364,7 @@ class Interpreter {
             }
             is Ast.Expression.Select -> {
                 val table = this.stackScope {
-                    val selectSequence = this@Interpreter.executeSelectExpression(from.table, this.currentScope)
+                    val selectSequence = this@Interpreter.executeSelectExpression(from.table)
 
                     selectSequence
                 } as Table
@@ -405,7 +385,7 @@ class Interpreter {
             else -> throw ExecutionException(
                 "Expected a table reference or select statement in from clause"
             )
-        } as Table
+        }
 
         val alias = if (from.alias?.lexeme == null) {
             this.generateSubqueryAlias()
@@ -440,16 +420,10 @@ class Interpreter {
                 }
         }.unzip()
 
-        val tableName = if (select.alias?.lexeme != null) {
-            select.alias!!.lexeme
-        } else {
-            ""
-        }
-
         return Row("", entries.first, entries.second)
     }
 
-    private fun evaluateSelectProjection(select: Ast.Expression.Select, row: Row, table: Table): Row {
+    private fun evaluateSelectProjection(select: Ast.Expression.Select, table: Table): Row {
         val columns = mutableListOf<Column>()
         val values = mutableListOf<Any?>()
         val tableName = if (select.alias?.lexeme != null) {
@@ -576,7 +550,7 @@ class Interpreter {
             return eval
         } catch (e: Exception) {
             throw ExecutionException(
-                "Failed to evaluate ${expression}; ${e}"
+                "Failed to evaluate ${expression}; $e"
             )
         }
     }
@@ -677,6 +651,8 @@ class Interpreter {
                 throw ExecutionException(
                     "Aggregation expressions are not allowed outside of group by queries"
                 )
+            is Ast.Expression.Grouping ->
+                this.evaluateExpression(expression.expression)
             else -> throw ExecutionException(
                 "Unknown expression"
             )

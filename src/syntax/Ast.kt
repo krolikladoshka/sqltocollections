@@ -13,6 +13,10 @@ sealed class Ast {
     ) {
         interface Selectable
 
+        data class Grouping(
+            val expression: Expression
+        ) : Expression()
+
         data class Identifier(
             val name: Token,
             val table: Token? = null

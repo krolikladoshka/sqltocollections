@@ -22,7 +22,7 @@ class CountCall: AggregateCall("count") {
 class SumCall: AggregateCall("sum") {
     override fun call(interpreter: Interpreter, args: List<Ast.Expression.Identifier>, group: List<Row>): Any? {
         require(args.size == 1) {
-            "Expected column argument in sum"
+            "Incorrect number of arguments was passed: expected 1 but got $args"
         }
 
         return group.sumOf {

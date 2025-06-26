@@ -19,6 +19,7 @@
 --a
 
 select
+--*
     out.field2,
     (out.f2_avg + out.f1_avg) / 2,
     f2_sum between 1 and 10
@@ -49,12 +50,19 @@ from
 --    p.field2 as new_field,
 --    fc.field2 as testfield,
 from (
-    select field1 as field1, (field1 / 100) as field2, (field1 in (1,)) as field3
-    from test_collection
+    select tc1.field1 as field1, (tc4.field1 / 100) as field2, (tc1.field1 in (1,)) as field3
+--    from test_collection as tc1, test_collection as tc2
+      from test_collection as tc1, filter_collection as tc2,
+      filter_collection as tc3, test_collection as tc4
 --    where test_collection.field1 between 5 and 8
-) as p
-inner join filter_collection as fc
-    on fc.field1 = p.field1
+) as p,
+--cross join filter_collection as fc1
+--inner join filter_collection as fc
+--    on fc.field1 = p.field1
+filter_collection as fc,
+filter_collection as fc2,
+test_collection as tc3
+cross join filter_collection as fc1
 group by fc.field2
 ) as out
 --cross join filter_collection as fc1
