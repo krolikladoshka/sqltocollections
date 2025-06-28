@@ -1,6 +1,7 @@
 package scanner
 
 enum class TokenType {
+    Is,
     Select,
     Distinct,
     From,
@@ -44,7 +45,6 @@ enum class TokenType {
     On,
     Cross,
 
-    NameIdentifier, // "full.column.name"."column"
     Identifier,
 
     Plus,
@@ -74,6 +74,7 @@ enum class TokenType {
 
 
 val keywords = mapOf(
+    "is" to TokenType.Is,
     "select" to TokenType.Select,
     "distinct" to TokenType.Distinct,
     "from" to TokenType.From,

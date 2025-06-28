@@ -7,6 +7,7 @@ import parser.Parser
 import scanner.Scanner
 import scanner.TokenType
 import syntax.EcwidSelectView
+import syntax.Source
 import java.io.File
 
 
@@ -14,9 +15,6 @@ class TestCollectionEntry(
     var field1: Double
 ) : Selectable {
     override fun asRow(): Row {
-//        return Row(mapOf(
-//            "test_collection.field1" to this.field1
-//        ))
         return Row(
             "test_collection",
             listOf(
@@ -49,10 +47,6 @@ class TestCollectionEntry2(
                 this.field2
             )
         )
-//        return Row(mapOf(
-//            "field1" to this.field1,
-//            "field2" to this.field2,
-//        ))
     }
 
     override fun fromRow(row: Row) {
@@ -61,45 +55,106 @@ class TestCollectionEntry2(
     }
 }
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
+fun formatRow(row: List<String>, widths: List<Int>): String {
+    return buildString {
+        append('|')
+        row.forEachIndexed {
+            i, value ->
+                append(value.padStart(widths[i]))
+                append('|')
+        }
+    }
+}
+
+    fun tablePrint(table: Table) {
+    val data: List<List<String>> = table.map {
+        row -> row.asEntries().map {
+            entry -> entry.second?.toString() ?: "null"
+        }
+    }.toList()
+
+    val fields = table.first().asEntries().map {
+        it.first
+    }
+
+    val widths: List<Int> = fields.map {
+        it.length
+    }
+    val sepLine = "-".repeat(widths.sum() + widths.size * 2)
+
+    println(sepLine)
+    println(formatRow(fields, widths))
+    println(sepLine)
+
+    data.forEach {
+        println(formatRow(it, widths))
+    }
+
+    println(sepLine)
+}
+
 fun main() {
-    val text = File("src/tests/testsql.sql").readText().lowercase()
+    val text = File(
+        "test/data/sql/complex_nested_sql_with_all_lang_statements.sql"
+    ).readText()
+    println("Parsing\n${text}")
     val scanner = Scanner(text)
 
     val tokens = scanner.scanTokens().filter {
         token -> token.tokenType != TokenType.Comment
     }.toList()
-    tokens.forEach {
-        token -> println(token)
-    }
 
     val parser = Parser(tokens)
-
     val parseResult = parser.parse()
-//    println(parseResult)
     val ecwidView = EcwidSelectView.Factory.fromAst(
         parseResult
     )
+    println()
+    println("#".repeat(20))
+    println()
+    println("Query's shallow viewAST\n${ecwidView}")
+    println()
+    println("#".repeat(20))
+    println()
+    println("Query's full viewAST")
+    println("#".repeat(20))
     println(ecwidView.prettyPrint(maxDepth = 10))
-//    val interpreter = Interpreter(ExecutionContext(mutableMapOf()))
+    println()
+    println("#".repeat(20))
+    println()
 
+    ecwidView.fromSource!!.let {
+        println("Example: joins")
+
+        val inner = it as Source.SubqueryTable
+        inner.select.joins.forEachIndexed {
+            index, join ->
+                println("$index:")
+                println(join)
+        }
+        println("Example: split having's condition expression")
+        print("Operands: ")
+        print(inner.select.havingClauses.operands.joinToString(", ") {
+            it.toString()
+        })
+        println()
+        print("Operators: ")
+        inner.select.havingClauses.operators.forEach {
+            print(it)
+        }
+        println()
+    }
+
+    println("#".repeat(20))
+    println("#".repeat(20))
+    println("#".repeat(20))
+    println("Buggy interpretation of the query (scope resolving issues):")
     val collection = listOf(
         TestCollectionEntry(1.0),
-//        TestCollectionEntry(2.0),
-//        TestCollectionEntry(3.0),
-//        TestCollectionEntry(4.0),
-//        TestCollectionEntry(5.0),
         TestCollectionEntry(6.0),
         TestCollectionEntry(7.0),
         TestCollectionEntry(7.0),
         TestCollectionEntry(8.0),
-//        TestCollectionEntry(9.0),
-//        TestCollectionEntry(10.0),
-//        TestCollectionEntry(11.0),
-//        TestCollectionEntry(12.0),
-//        TestCollectionEntry(13.0),
-//        TestCollectionEntry(14.0),
     )
     val filterCollection = listOf(
         TestCollectionEntry2(6.0, "test1"),
@@ -126,9 +181,9 @@ fun main() {
 
     val interpreter = Interpreter(bindings)
 
-    val value = interpreter.execute(parseResult).toList()
+    val value = interpreter.execute(parseResult)
 
-    value.forEach {
-        v -> println(v)
-    }
+    tablePrint(value)
+
+    println("Done")
 }

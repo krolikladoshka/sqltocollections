@@ -71,6 +71,11 @@ sealed class Ast {
             val name: Token,
         ) : Expression(), Selectable
 
+        data class Is(
+            val token: Token,
+            val left: Expression
+        ) : Expression()
+
         data class Between(
             val token: Token,
             val value: Expression,

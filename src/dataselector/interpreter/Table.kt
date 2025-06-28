@@ -9,12 +9,18 @@ interface Selectable {
 
 data class Table(
     var name: String,
-    val fields: List<String>,
+    var fields: List<String>,
     val rows: List<Row>,
     var scope: Scope? = null,
 ) : List<Row> by rows {
+    override val size: Int
+        get() {
+            return this.rows.size
+        }
+
     fun mapRows(transform: List<Row>.() -> List<Row>): Table {
-        return Table(this.name,this.fields, transform(this))
+        val transformed = transform(this)
+        return Table(this.name,this.fields, transformed)
     }
 
     fun setTableName(name: String) {
@@ -27,6 +33,10 @@ data class Table(
                     c -> c.copy(tableAlias = name)
             }.toMutableList()
         }
+    }
+
+    fun setNewFields(newFields: List<String>) {
+        this.fields = newFields
     }
 }
 
@@ -65,8 +75,9 @@ fun Table.leftJoin(right: Table, on: (Row, Row) -> Boolean): Table {
 
         if (matches.isEmpty()) {
             sequenceOf(leftRow + Row(
-                right.name, right.rows.first().columns, listOf())
-            )
+                right.name, right.rows.first().columns,
+                List(right.rows.first().columns.size) { null }
+            ))
         } else {
             matches.asSequence()
         }

@@ -108,6 +108,13 @@ class Row {
         return row
     }
 
+    fun asEntries(): List<Pair<String, Any?>> {
+        return this.columns.map {
+            column ->
+                Pair(column.alias, this@Row.values[column.index])
+        }
+    }
+
     operator fun plus(right: Row): Row {
         return this.join(right, "left", "right")
     }

@@ -1,0 +1,35 @@
+select
+    out.field2 as field2,
+    round((out.f2_avg + out.f1_avg) / 2, 3) as avg_of_avg,
+    round(out.f2_sum between 1 and 10, 3) as is_f2_sum_between_1_and_10,
+    round(out.f2_sum, 3) as f2_sum
+from
+(
+    select
+        fc.field2 as field2,
+        count(*) as count,
+        sum(p.field2) as f2_sum,
+        avg(p.field2) as f2_avg,
+        avg(p.field1) as f1_avg
+    from (
+        select
+            tc1.field1 as field1,
+            (((tc1.field1 / 100.0) * 10.0) + (3.0 / 5.0) - 1 + (3 * (4 - 5))) as field2,
+            (tc1.field1 in (1)) as field3
+          from
+            test_collection as tc1,
+            filter_collection as fc1
+            inner join filter_collection as fc2
+                on tc1.field1 = fc2.field1
+          where
+            tc1.field1 between 5 and 8 --and fc1.field1 is not null
+    ) as p,
+    filter_collection as fc,
+    filter_collection as fc2,
+    test_collection as tc3
+    inner join filter_collection as fc1
+        on fc1.field1 = p.field1 and true or true
+    group by fc.field2
+    having f2_sum < 10.0 or true
+) as out
+order by out.field2;

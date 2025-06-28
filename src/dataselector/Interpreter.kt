@@ -3,15 +3,21 @@ package dataselector
 import dataselector.interpreter.*
 import scanner.TokenType
 import syntax.Ast
-import kotlin.collections.filter
+import syntax.OrderBy
+import syntax.SortDirection
 
 
 class Interpreter {
-    companion object AggregateFunctions {
-        val map = mapOf(
+    companion object Functions {
+        val aggregationFunctions = mapOf(
             "avg" to AvgCall(),
             "sum" to SumCall(),
             "count" to CountCall()
+        )
+
+        val helperFunction = mapOf(
+            "round" to RoundCall(),
+            "toint" to ToIntCall()
         )
     }
 
@@ -81,6 +87,7 @@ class Interpreter {
         if (!subquery) {
             sequence.scope = this.rootScope
         }
+
         this.currentRow = sequence.first()
         sequence = this.evaluateJoins(query.joins, sequence)
 
@@ -91,7 +98,7 @@ class Interpreter {
                          this@Interpreter.currentRow = row
                          this@Interpreter.evaluateExpression(it) as Boolean
                  }
-             }
+            }
         }
 
         sequence = if (query.groupBy.isNotEmpty()) {
@@ -104,8 +111,12 @@ class Interpreter {
                         this@Interpreter.evaluateSelectProjection(query,sequence)
                 }
             }
+
         }
 
+        if (query.orderBy.isNotEmpty()) {
+            sequence = this.evaluateOrderBy(query.orderBy, sequence)
+        }
         query.offset?.let {
             val offset = (this@Interpreter.evaluateExpression(it) as Number).toInt()
 
@@ -131,6 +142,38 @@ class Interpreter {
         }
 
         return sequence
+    }
+
+    private fun evaluateOrderBy(orderByColumns: List<OrderBy>, table: Table): Table {
+        require(orderByColumns.isNotEmpty()) {
+            "No order by columns provided in order by clause"
+        }
+
+        val firstSort = orderByColumns.first()
+        var comparator = compareBy<Row> {
+            row ->
+                this@Interpreter.currentRow = row
+                this@Interpreter.evaluateIdentifier(firstSort.column) as Comparable<Any?>
+        }
+        if (firstSort.direction == SortDirection.Descending) {
+            comparator = comparator.reversed()
+        }
+        for (orderBy in orderByColumns.drop(1)) {
+            comparator.thenBy {
+                row ->
+                    this@Interpreter.currentRow = row
+                    this@Interpreter.evaluateIdentifier(orderBy.column) as Comparable<Any?>
+            }
+
+            if (orderBy.direction == SortDirection.Descending) {
+                comparator = comparator.reversed()
+            }
+        }
+
+        val table = table.copy(rows=table.sortedWith(comparator))
+        this.currentScope.setTable(table.name, table)
+
+        return table
     }
 
     private fun evaluateGroupBy(query: Ast.Expression.Select, table: Table): Table {
@@ -305,7 +348,7 @@ class Interpreter {
         require(selectProjection.callee is Ast.Expression.Identifier) {
             "Unexpected calee expression"
         }
-        require(map.contains(selectProjection.callee.name.lexeme)) {
+        require(aggregationFunctions.contains(selectProjection.callee.name.lexeme.lowercase())) {
             "Unknown aggregate function ${selectProjection.callee.name}"
         }
         require(selectProjection.arguments.all {
@@ -314,7 +357,7 @@ class Interpreter {
             "Only identifiers are allowed as arguments for aggregation functions for now. . . and forever"
         }
 
-        val function = map[selectProjection.callee.name.lexeme]
+        val function = aggregationFunctions[selectProjection.callee.name.lexeme.lowercase()]
         val args = selectProjection.arguments.map {
             arg -> arg as Ast.Expression.Identifier
         }
@@ -367,7 +410,13 @@ class Interpreter {
     private fun evaluateFrom(from: Ast.Expression.TableReference, inJoin: Boolean = false): Table {
         val table = when (from.table) {
             is Ast.Expression.TableIdentifier -> {
-                var table = this.currentScope.getByIdentifier(from.table)!!
+                var table = this.currentScope.getByIdentifier(from.table)
+
+                if (table == null) {
+                    throw ExecutionException(
+                        "Table ${from.table.name} is not found in current scope"
+                    )
+                }
                 table.scope = this.currentScope
 
                 if (inJoin) {
@@ -432,7 +481,7 @@ class Interpreter {
                 } else {
                     Pair(
                         Column("", expr.alias!!.lexeme, "$index", index),
-                        index
+                        value
                     )
                 }
         }.unzip()
@@ -470,7 +519,7 @@ class Interpreter {
                 columns.add(cv.first)
                 values.add(cv.second)
         }
-
+        // don't look
         return Row(tableName, columns, values)
     }
 
@@ -495,12 +544,7 @@ class Interpreter {
         if (identifier.table?.lexeme != null) {
             val tableName = this.currentScope.getTableAlias(identifier.table.lexeme)
 
-            val alias = identifier.alias?.lexeme
-            return if (alias != null) {
-                this.currentRow!!.get(alias, tableName!!)
-            } else {
-                this.currentRow!!.get(identifier.name.lexeme, tableName!!)
-            }
+            return this.currentRow!!.get(identifier.name.lexeme, tableName!!)
         }
 
         val columnName = if (identifier.alias?.lexeme != null) {
@@ -535,6 +579,12 @@ class Interpreter {
             else ->
                 (left as Comparable<Any?>) == (right as Comparable<Any?>)
         }
+    }
+
+    private fun evaluateIs(expression: Ast.Expression.Is): Boolean {
+        val value = this.evaluateExpression(expression.left)
+
+        return value == null
     }
 
     private fun evaluateBinary(expression: Ast.Expression.Binary): Any? {
@@ -644,6 +694,30 @@ class Interpreter {
         return this.evaluateExpression(expression.elseBranch)
     }
 
+    fun evaluateCall(call: Ast.Expression.Call): Any? {
+        require(call.callee is Ast.Expression.Identifier) {
+            "Unexpected callee expression ${call.token}"
+        }
+
+        val functionName = call.callee.name.lexeme
+        if (aggregationFunctions.contains(functionName.lowercase())) {
+            throw ExecutionException(
+                "Aggregation expressions are not allowed outside of group by queries" +
+                "${call.callee.name}"
+            )
+        }
+
+        if (!helperFunction.contains(functionName.lowercase())) {
+            throw ExecutionException(
+                "Unknown function ${call.callee.name}"
+            )
+        }
+
+        return helperFunction[functionName.lowercase()]!!.call(
+            this, call.arguments
+        )
+    }
+
     fun evaluateExpression(expression: Ast.Expression): Any? {
         return when (expression) {
             is Ast.Expression.Literal ->
@@ -665,11 +739,11 @@ class Interpreter {
             is Ast.Expression.Case ->
                 this.evaluateCase(expression)
             is Ast.Expression.Call ->
-                throw ExecutionException(
-                    "Aggregation expressions are not allowed outside of group by queries"
-                )
+                this.evaluateCall(expression)
             is Ast.Expression.Grouping ->
                 this.evaluateExpression(expression.expression)
+            is Ast.Expression.Is ->
+                this.evaluateIs(expression)
             else -> throw ExecutionException(
                 "Unknown expression"
             )

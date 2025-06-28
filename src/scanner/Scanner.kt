@@ -41,7 +41,7 @@ class Scanner(
 ) {
     private fun newLine() {
         this.currentLine++
-        this.currentColumn = 1
+        this.currentColumn = 0
     }
 
     private fun getUpToCursor(startOffset: Int = 0): String {
@@ -101,6 +101,11 @@ class Scanner(
 
     private fun produceSimpleToken(tokenType: TokenType): Token {
         val token = this.makeToken(tokenType)
+
+        if (tokenType == TokenType.EOF) {
+            return token
+        }
+
         this.advance()
 
         return token
@@ -165,6 +170,7 @@ class Scanner(
         if (!this.isAtEnd()) {
             this.advance()
             this.newLine()
+            this.currentColumn = 1
         }
 
         return this.makeToken(
@@ -204,6 +210,9 @@ class Scanner(
     }
 
     private fun scanString(): Token {
+        val stringLine = this.currentLine
+        val stringColumn = this.currentColumn
+
         requireSymbol('\'') {
             "Expected \"'\" at the start of the string"
         }
@@ -213,9 +222,15 @@ class Scanner(
             val c = this.advance()
 
              if (c == '\'') {
-                stringEnd = this.current
-                this.advance()
-                break
+                 stringEnd = this.current
+
+                 if (this.peek() == '\n') {
+                     this.newLine()
+                 }
+
+                 this.advance()
+
+                 break
             }
 
             if (this.isAtEnd() || c == '\n') {
@@ -229,7 +244,9 @@ class Scanner(
 
         return this.makeToken(
             TokenType.String,
-            stringValue
+            stringValue,
+            stringLine,
+            stringColumn
         )
     }
 
@@ -241,7 +258,7 @@ class Scanner(
         val identifier = this.getUpToCursor()
 
         val tokenType = keywords.getOrDefault(
-            identifier, TokenType.Identifier
+            identifier.lowercase(), TokenType.Identifier
         )
 
         return this.makeToken(
@@ -310,6 +327,7 @@ class Scanner(
             '[' -> return this.produceSimpleToken(TokenType.LeftSquareBracket)
             ']' -> return this.produceSimpleToken(TokenType.RightSquareBracket)
             ';' -> return this.produceSimpleToken(TokenType.Semicolon)
+            '\u0000' -> return this.produceSimpleToken(TokenType.EOF)
             else -> {
                 return if (c.isAsciiDigit()) {
                     this.scanNumber()
@@ -342,7 +360,7 @@ class Scanner(
         )
     }
 
-    fun updateCursors() {
+    private fun updateCursors() {
         this.start = this.current
         this.line = this.currentLine
         this.column = this.currentColumn

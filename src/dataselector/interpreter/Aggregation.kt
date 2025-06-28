@@ -2,6 +2,8 @@ package dataselector.interpreter
 
 import dataselector.Interpreter
 import syntax.Ast
+import kotlin.math.pow
+import kotlin.math.round
 
 abstract class AggregateCall(
     val name: String
@@ -134,3 +136,74 @@ sealed class InnerGroupingKey(
 }
 
 typealias GroupingKey = List<InnerGroupingKey>
+
+abstract class Call(
+    val name: String
+) {
+    fun call(interpreter: Interpreter, args: List<Ast.Expression>): Any? {
+        require(args.size == this.argumentsCount()) {
+            "Function ${this.name} expects ${this.argumentsCount()} arguments, but got ${args.size}"
+        }
+
+        val evaluatedArgs = args.map {
+                arg -> interpreter.evaluateExpression(arg)
+        }
+
+        return this.execute(interpreter, evaluatedArgs)
+    }
+
+    abstract fun argumentsCount(): Int
+
+    abstract fun execute(interpreter: Interpreter, args: List<Any?>): Any?
+
+}
+
+class RoundCall: Call("round") {
+    override fun argumentsCount(): Int {
+        return 2
+    }
+
+    override fun execute(
+        interpreter: Interpreter,
+        args: List<Any?>
+    ): Any? {
+        require(args.size == 2) {
+            "${this.name} expects only 2 arguments, but got ${args.size}"
+        }
+        require(args.all { it is Number || it is Boolean }) {
+            "Only numbers can be passed to ${this.name} function"
+        }
+
+        val args = args.map { if (it is Boolean) { if (it) { 1 } else { 0}} else it as Number }
+        val value = args[0].toDouble()
+        val place = args[1].toInt()
+
+        require(place > 0) {
+            "Can't round up to <1 places"
+        }
+
+        val scale = 10.0.pow(place)
+
+        return round(value * scale) / scale
+    }
+}
+
+class ToIntCall: Call("toInt") {
+    override fun argumentsCount(): Int {
+        return 1
+    }
+
+    override fun execute(
+        interpreter: Interpreter,
+        args: List<Any?>
+    ): Any? {
+        val arg = args[0] as Boolean
+
+        return if (arg) {
+            1
+        } else {
+            0
+        }
+    }
+
+}

@@ -142,7 +142,6 @@ sealed class Source(
                     append("Subquery")
                 } else {
                     append("\n")
-//                    append("  ".repeat(currentDepth))
                     append(this@Source.select.prettyPrint(currentDepth, maxDepth))
                     append("\n")
                     if (currentDepth > 0) {
@@ -282,7 +281,6 @@ class EcwidSelectView(
 
         return buildString {
             walk(this, currentDepth)
-//            this@EcwidSelectView.prettyPrint(0, depth)
         }
     }
 

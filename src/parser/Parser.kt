@@ -55,6 +55,7 @@ class Parser(
             )
         }
         this.advance()
+        this.skipComments()
 
         return token
     }
@@ -85,6 +86,7 @@ class Parser(
         val token = this.peek()
 
         this.current++
+        this.skipComments()
 
         return token
     }
@@ -454,11 +456,38 @@ class Parser(
         return this.parsePostfixExpression()
     }
 
+    private fun parseIsExpression(left: Ast.Expression): Ast.Expression {
+        val token = this.requireToken(TokenType.Is) {
+            "'is' keyword is required in 'is' expression"
+        }
+
+        var notToken: Token? = null
+        if (this.check(TokenType.Not)) {
+            notToken = this.advance()
+        }
+
+        this.requireToken(TokenType.Null) {
+            "Null is required in 'is' expression ${token.at()}"
+        }
+
+        val expression = Ast.Expression.Is(token, left)
+
+        if (notToken != null) {
+            return Ast.Expression.Unary(notToken, expression)
+        }
+
+        return expression
+    }
+
     private fun parsePostfixExpression(): Ast.Expression {
-        val call = this.parseFunctionCall()
+        val left = this.parseFunctionCall()
 
         var not: Token? = null
         var operator = this.peek()
+
+        if (operator.tokenType == TokenType.Is) {
+            return this.parseIsExpression(left)
+        }
 
         if (operator.tokenType == TokenType.Not) {
             not = this.advance()
@@ -466,10 +495,10 @@ class Parser(
         }
 
         val expr = when (operator.tokenType) {
-            TokenType.In -> this.parseInExpression(call)
-            TokenType.Between -> this.parseBetweenExpression(call)
-            TokenType.Like -> this.parseLikeExpression(call)
-            else -> call
+            TokenType.In -> this.parseInExpression(left)
+            TokenType.Between -> this.parseBetweenExpression(left)
+            TokenType.Like -> this.parseLikeExpression(left)
+            else -> left
         }
 
         if (not != null) {
