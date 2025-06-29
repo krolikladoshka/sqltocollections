@@ -205,9 +205,14 @@ class EcwidSelectView(
             val selectTab = "  ".repeat(currentDepth + 1)
             sb.append("${tab}select\n$selectTab")
 
-            val projections = this.projections.joinToString("\n$selectTab") { projection ->
-                projection.toString()
+            val projections = if (this.projections.isNotEmpty()) {
+                this.projections.joinToString("\n$selectTab") { projection ->
+                    projection.toString()
+                }
+            } else {
+                sb.append("*")
             }
+
             sb.append(projections)
 
             if (fromSource == null) {
@@ -292,7 +297,12 @@ class EcwidSelectView(
         }
 
         fun fromQuery(query: Ast.Expression.Select): EcwidSelectView {
-            val projections = this.getProjections(query.results)
+            val projections = if (!query.starSelect) {
+                this.getProjections(query.results)
+            } else {
+                emptyList()
+            }
+
             val from = query.from?.let {
                 this@Factory.getSource(it)
             }
@@ -351,7 +361,8 @@ class EcwidSelectView(
                 having,
                 sort,
                 limit?.toInt(),
-                offset.toInt()
+                offset.toInt(),
+                query.starSelect
             )
         }
 
